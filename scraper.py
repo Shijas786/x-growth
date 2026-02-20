@@ -258,23 +258,26 @@ class XScraper:
                             # If this is Medusa's tweet
                             if f"@{target_username}" in handle_text:
                                 print(f"[{i}] -> Found tweet by Medusa. Checking context...")
-                                # We check if it's a reply by looking for "Replying to" labels
-                                # Method 1: Check for the specific context div
-                                reply_indicator = await tweet.query_selector('[data-testid="tweetText"] + div, div:has-text("Replying to")')
-                                is_reply = False
+                                # Check for the "Replying to" indicator
+                                # Method 1: Check for standard X reply indicators
+                                # We check for aria-labels or text content that strictly indicates a reply
+                                tweet_text_area = ""
+                                try:
+                                    tweet_text_area = await tweet.inner_text(timeout=3000)
+                                except:
+                                    pass
                                 
-                                if reply_indicator:
-                                    is_reply = True
-                                else:
-                                    # Method 2: Fallback to broader text check
-                                    try:
-                                        tweet_raw = await tweet.inner_text(timeout=3000)
-                                        is_reply = "Replying to @" in tweet_raw or "Replying to" in tweet_raw
-                                    except:
-                                        is_reply = False
+                                # Indicators that this tweet is a reply (either Medusa replying or someone else)
+                                is_reply = "@" in tweet_text_area and "Replying to" in tweet_text_area
+                                
+                                if not is_reply:
+                                    # Backup check: Look for a specific div that X uses for reply context
+                                    reply_context = await tweet.query_selector('div:has-text("Replying to")')
+                                    if reply_context:
+                                        is_reply = True
                                     
                                 if is_reply:
-                                    print(f"-> Detected Medusa Reply. Searching for parent tweet...")
+                                    print(f"[{i}] -> Detected Medusa Reply. Searching for parent tweet...")
                                     # ROBUST SEARCH: Look backwards from current index for the first NON-MEDUSA tweet
                                     parent_tweet = None
                                     for j in range(i - 1, -1, -1):
@@ -344,6 +347,8 @@ class XScraper:
                                                     if len(targets) >= limit: break
                                             else:
                                                 print(f"MIRROR SKIP: @{parent_author}'s post is a sub-comment/thread.")
+                                else:
+                                    print(f"[{i}] -> SKIP: Not detected as a reply (maybe a root post or quote).")
                     except Exception:
                         continue
                     found_count += 1
@@ -352,6 +357,9 @@ class XScraper:
                 await Humanizer.natural_scroll(page)
                 await Humanizer.wait(1, 2)
                 
+            print(f"Sweep complete. Found {len(targets)} mirrored targets.")
+            if len(targets) == 0:
+                print(f"No new mirrored targets found in the last {scan_limit} tweets. Sleeping for 10m...")
             await context.close()
         return targets
 
