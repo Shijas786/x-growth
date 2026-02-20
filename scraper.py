@@ -208,26 +208,31 @@ class XScraper:
                 pass
             
             # We look for conversations where Medusa is the second participant
-            # This is complex in X's DOM, so we look for "Replying to @..." text
-            # Coverage Optimization: We scan up to 50 tweets to find every new engagement we missed
+            # Coverage Optimization: Increased scan limit for slow cloud hydration
             found_count = 0
-            while len(targets) < limit and found_count < 50: 
-                tweets = await page.query_selector_all('[data-testid="tweet"]')
-                print(f"Sweep Details: Found {len(tweets)} tweets on page. (Scanned: {found_count} of 50 total, {limit - len(targets)} targets left to find)")
+            empty_retries = 0
+            max_empty_retries = 10 # Allow up to 10 reties for empty content
+            scan_limit = 100
+            
+            while len(targets) < limit and found_count < scan_limit: 
+                # Use broader selector (article or data-testid)
+                tweets = await page.query_selector_all('[data-testid="tweet"], article')
+                print(f"Sweep Details: Found {len(tweets)} tweets on page. (Scanned: {found_count} of {scan_limit}, {limit - len(targets)} left to find)")
                 
                 if not tweets:
-                    print(f"No tweets found. Page Title: '{await page.title()}'")
-                    print(f"Current URL: {page.url}")
-                    # Save a debug screenshot on first failure
-                    if found_count == 0:
-                        await page.screenshot(path="data/no_tweets_debug.png")
-                        print("Saved debug screenshot to data/no_tweets_debug.png")
-                    
-                    print("Scrolling to load or trigger hydration...")
-                    await Humanizer.natural_scroll(page)
-                    await Humanizer.wait(4, 7)
-                    found_count += 5 
+                    empty_retries += 1
+                    if empty_retries > max_empty_retries:
+                        print(f"Giving up after {max_empty_retries} empty scrolls. Page status: '{await page.title()}'")
+                        break
+                        
+                    print(f"Try {empty_retries}/{max_empty_retries}: Loading content... (Title: '{await page.title()}')")
+                    # Force a slightly deeper scroll to trigger hydration
+                    await page.evaluate("window.scrollBy(0, 1000)")
+                    await Humanizer.wait(5, 8)
                     continue
+                
+                # Reset retries if we found content
+                empty_retries = 0
 
                 for i, tweet in enumerate(tweets):
                     try:
