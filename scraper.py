@@ -183,15 +183,10 @@ class XScraper:
                 await context.close()
                 return targets
             
-            # Click "Show" or "View" if X is hiding content (common on some profiles)
-            try:
-                show_btn = await page.query_selector('div[role="button"]:has-text("Show")')
-                if show_btn:
-                    await show_btn.click()
-                    print("Clicked 'Show' button to reveal hidden content.")
-                    await Humanizer.wait(2, 4)
-            except:
-                pass
+            print(f"Diagnostics: Verifying session state...")
+            # Initial check for tweets on the page to determine if we're logged in or if content is loading
+            initial_tweets = await page.query_selector_all('[data-testid="tweet"]')
+            tweets_on_start = len(initial_tweets) > 0
 
             if not has_home_clue and not tweets_on_start: # Fallback if home link is buried
                 # Check for other logged in markers like the tweet button
@@ -202,13 +197,23 @@ class XScraper:
             else:
                 print("✅ LOGGED IN: Home navigation detected.")
             
+            # Click "Show" or "View" if X is hiding content (common on some profiles)
+            try:
+                show_btn = await page.query_selector('div[role="button"]:has-text("Show")')
+                if show_btn:
+                    await show_btn.click()
+                    print("Clicked 'Show' button to reveal hidden content.")
+                    await Humanizer.wait(2, 4)
+            except:
+                pass
+            
             # We look for conversations where Medusa is the second participant
             # This is complex in X's DOM, so we look for "Replying to @..." text
             # Coverage Optimization: We scan up to 50 tweets to find every new engagement we missed
             found_count = 0
             while len(targets) < limit and found_count < 50: 
                 tweets = await page.query_selector_all('[data-testid="tweet"]')
-                print(f"Sweep Details: Found {len(tweets)} tweets on page. (Scanned: {found_count})")
+                print(f"Sweep Details: Found {len(tweets)} tweets on page. (Scanned: {found_count} of 50 total, {limit - len(targets)} targets left to find)")
                 
                 if not tweets:
                     print(f"No tweets found. Page Title: '{await page.title()}'")
@@ -233,7 +238,8 @@ class XScraper:
                             
                             # If this is Medusa's tweet
                             if f"@{target_username}" in handle_text:
-                                # Check for the "Replying to" indicator
+                                print(f"[{i}] -> Found tweet by Medusa. Checking context...")
+                                # We check if it's a reply by looking for "Replying to" labels
                                 # Method 1: Check for the specific context div
                                 reply_indicator = await tweet.query_selector('[data-testid="tweetText"] + div, div:has-text("Replying to")')
                                 is_reply = False
@@ -263,7 +269,7 @@ class XScraper:
                                     
                                     if parent_tweet:
                                         p_handle_text = await (await parent_tweet.query_selector('[data-testid="User-Name"]')).inner_text()
-                                        print(f"-> Found potential parent by: {p_handle_text[:30]}")
+                                        print(f"[{i}] -> Found potential parent by: {p_handle_text[:30]}")
                                         
                                         # Check if parent is a reply itself
                                         try:
@@ -271,12 +277,13 @@ class XScraper:
                                         except:
                                             p_raw = ""
                                         is_parent_reply = "Replying to @" in p_raw
-                                            
+                                        
+                                        if is_parent_reply:
+                                            print(f"[{i}] -> SKIP: Parent is a comment (not a root tweet)")
+
                                         # CRITERIA:
-                                        # 1. Parent is NOT Medusa
-                                        # 2. Parent is NOT a reply/comment (it is a ROOT tweet)
                                         if "@MedusaOnchain" not in p_handle_text and not is_parent_reply:
-                                            print(f"SUCCESS: Root target found from @{p_handle_text.split()[-1]}")
+                                            print(f"[{i}] -> SUCCESS: Root target found! Author: @{p_handle_text.split()[-1]}")
                                             parent_author = p_handle_text.split("@")[1].split()[0]
                                             parent_display = p_handle_text.split("@")[0].strip()
                                             
