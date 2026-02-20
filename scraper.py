@@ -159,9 +159,12 @@ class XScraper:
             print(f"Mirroring: Checking @{target_username}'s recent engagement at {url}...")
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                await Humanizer.wait(5, 8) # Longer wait for cloud
+                await Humanizer.wait(8, 12) # Even longer wait for cloud hydration
+                print(f"Navigation Complete. Current URL: {page.url}")
             except Exception as e:
                 print(f"Navigation Error: {e}")
+                # Save debug screenshot for failed navigation
+                await page.screenshot(path="data/last_error.png")
                 await context.close()
                 return targets
 
@@ -199,9 +202,15 @@ class XScraper:
                 
                 if not tweets:
                     print(f"No tweets found. Page Title: '{await page.title()}'")
+                    print(f"Current URL: {page.url}")
+                    # Save a debug screenshot on first failure
+                    if found_count == 0:
+                        await page.screenshot(path="data/no_tweets_debug.png")
+                        print("Saved debug screenshot to data/no_tweets_debug.png")
+                    
                     print("Scrolling to load or trigger hydration...")
                     await Humanizer.natural_scroll(page)
-                    await Humanizer.wait(3, 6)
+                    await Humanizer.wait(4, 7)
                     found_count += 5 
                     continue
 
