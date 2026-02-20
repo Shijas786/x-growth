@@ -301,81 +301,60 @@ class XScraper:
                                         is_reply = True
                                     
                                 if is_reply:
-                                    print(f"[{i}] -> Detected Medusa Reply. Searching for parent tweet...")
+                                    print(f"[{i}] -> Detected Medusa Reply. Capturing parent...")
                                     # ROBUST SEARCH: Look backwards from current index for the first NON-MEDUSA tweet
+                                    # Actually, if she is replying to herself, we might want to capture that too,
+                                    # but usually mirroring means copying her engagement with others.
+                                    # User wants "ANY reply", so we'll just take the parent.
                                     parent_tweet = None
                                     for j in range(i - 1, -1, -1):
                                         potential_parent = tweets[j]
                                         p_handle_el = await potential_parent.query_selector('[data-testid="User-Name"]')
                                         if p_handle_el:
                                             p_handle_text = await p_handle_el.inner_text()
-                                            if f"@{target_username}" not in p_handle_text:
-                                                parent_tweet = potential_parent
-                                                break
+                                            # We still avoid mirroring her own tweets unless she's replying to herself
+                                            parent_tweet = potential_parent
+                                            break
                                     
                                     if parent_tweet:
                                         p_handle_text = await (await parent_tweet.query_selector('[data-testid="User-Name"]')).inner_text()
-                                        print(f"[{i}] -> Found potential parent by: {p_handle_text[:30]}")
+                                        print(f"[{i}] -> Capturing target by: {p_handle_text[:30]}")
                                         
-                                        # Check if parent is a reply itself
-                                        try:
-                                            p_raw = await parent_tweet.inner_text(timeout=5000)
-                                        except:
-                                            p_raw = ""
-                                        is_parent_reply = "Replying to @" in p_raw
+                                        parent_author = p_handle_text.split("@")[1].split()[0]
+                                        parent_display = p_handle_text.split("@")[0].strip()
                                         
-                                        if is_parent_reply:
-                                            print(f"[{i}] -> Parent is a comment. Asking AI to evaluate quality...")
+                                        content_el = await parent_tweet.query_selector('[data-testid="tweetText"]')
+                                        content = await content_el.inner_text() if content_el else "[Media/No Text]"
+                                        
+                                        # Extract Tweet URL/ID
+                                        link_el = await parent_tweet.query_selector('a[href*="/status/"]')
+                                        tweet_url = ""
+                                        if link_el:
+                                            tweet_url = await page.evaluate('(el) => el.href', link_el)
+                                        
+                                        # Extract Image URL
+                                        image_el = await parent_tweet.query_selector('[data-testid="tweetPhoto"] img')
+                                        image_url = ""
+                                        if image_el:
+                                            image_url = await page.evaluate('(el) => el.src', image_el)
 
-                                        # AI EVALUATION: Let the AI decide if this is a good target
-                                        evaluation = await ai.evaluate_target(content or "[No text]", medusa_reply or "[No text]", parent_author)
-                                        print(f"[{i}] -> AI Decision: {evaluation['decision']} (Score: {evaluation['score']}, Reason: {evaluation['reason']})")
-
-                                        if evaluation['decision'] == "ACCEPT":
-                                            print(f"[{i}] -> SUCCESS: AI Accepted Target! Author: @{parent_author}")
-                                            parent_author = p_handle_text.split("@")[1].split()[0]
-                                            parent_display = p_handle_text.split("@")[0].strip()
-                                            
-                                            content_el = await parent_tweet.query_selector('[data-testid="tweetText"]')
-                                            if content_el:
-                                                content = await content_el.inner_text()
-                                                
-                                                # Extract Tweet URL/ID for targeting and persistence
-                                                # We look for the link containing '/status/'
-                                                link_el = await parent_tweet.query_selector('a[href*="/status/"]')
-                                                tweet_url = ""
-                                                if link_el:
-                                                    tweet_url = await page.evaluate('(el) => el.href', link_el)
-                                                
-                                                # Extract Image URL if present
-                                                image_el = await parent_tweet.query_selector('[data-testid="tweetPhoto"] img')
-                                                image_url = ""
-                                                if image_el:
-                                                    image_url = await page.evaluate('(el) => el.src', image_el)
-
-                                                # Extract Medusa's actual reply text to "alter" it
-                                                medusa_reply_el = await tweet.query_selector('[data-testid="tweetText"]')
-                                                medusa_reply = ""
-                                                if medusa_reply_el:
-                                                    medusa_reply = await medusa_reply_el.inner_text()
-                                                
-                                                target_data = {
-                                                    "author": parent_author,
-                                                    "display_name": parent_display,
-                                                    "content": content,
-                                                    "url": tweet_url,
-                                                    "image_url": image_url,
-                                                    "medusa_reply": medusa_reply
-                                                }
-                                                
-                                                if target_data["url"] not in [t["url"] for t in targets]:
-                                                    targets.append(target_data)
-                                                    print(f"MIRROR SUCCESS: Captured @{parent_author} (Medusa said: '{medusa_reply}')")
-                                                    if len(targets) >= limit: break
-                                            else:
-                                                print(f"MIRROR SKIP: @{parent_author}'s post has no text content.")
-                                        else:
-                                            print(f"[{i}] -> REJECTED: {evaluation['reason']}")
+                                        # Extract Medusa's reply
+                                        medusa_reply_el = await tweet.query_selector('[data-testid="tweetText"]')
+                                        medusa_reply = await medusa_reply_el.inner_text() if medusa_reply_el else ""
+                                        
+                                        target_data = {
+                                            "author": parent_author,
+                                            "display_name": parent_display,
+                                            "content": content,
+                                            "url": tweet_url,
+                                            "image_url": image_url,
+                                            "medusa_reply": medusa_reply
+                                        }
+                                        
+                                        if target_data["url"] not in [t["url"] for t in targets]:
+                                            targets.append(target_data)
+                                            print(f"MIRROR SUCCESS: Captured @{parent_author} (Medusa said: '{medusa_reply}')")
+                                            if len(targets) >= limit: break
                                 else:
                                     print(f"[{i}] -> SKIP: Not detected as a reply (maybe a root post or quote).")
                     except Exception:
