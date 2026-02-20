@@ -166,7 +166,11 @@ class XScraper:
                 return targets
 
             # Check for common "Blocked" or "Login Required" states
-            page_text = await page.inner_text("body")
+            try:
+                page_text = await page.inner_text("body", timeout=15000)
+            except:
+                page_text = ""
+                
             has_login_clue = "Log in" in page_text or "Something went wrong" in page_text
             has_home_clue = await page.query_selector('[data-testid="AppTabBar_Home_Link"]')
             
@@ -176,8 +180,12 @@ class XScraper:
                 await context.close()
                 return targets
             
-            if not has_home_clue:
-                print("⚠️ WARNING: Logged-in navigation bar not found. X might be loading or blocked.")
+            if not has_home_clue and not tweets_on_start: # Fallback if home link is buried
+                # Check for other logged in markers like the tweet button
+                if await page.query_selector('[data-testid="SideNav_NewTweet_Button"]'):
+                    print("✅ LOGGED IN: Tweet button detected.")
+                else:
+                    print("⚠️ WARNING: Logged-in state not confirmed. X might be loading or blocked.")
             else:
                 print("✅ LOGGED IN: Home navigation detected.")
             
@@ -202,79 +210,89 @@ class XScraper:
                         handle_el = await tweet.query_selector('[data-testid="User-Name"]')
                         if handle_el:
                             handle_text = await handle_el.inner_text()
+                            print(f"[{i}] Checking tweet by: {handle_text[:40]}...")
                             
                             # If this is Medusa's tweet
                             if f"@{target_username}" in handle_text:
-                                # Check for the "Replying to" indicator
-                                # This is usually a div with text content containing "@" and "Replying to"
-                                is_reply = False
-                                
-                                # We check all divs in the tweet for "Replying to" text
-                                tweet_text_area = await tweet.inner_text()
-                                if "Replying to @" in tweet_text_area:
-                                    is_reply = True
+                                # We check if it's a reply by looking for "Replying to" labels
+                                # Using a broader inner_text check with timeout protection
+                                try:
+                                    tweet_raw = await tweet.inner_text(timeout=5000)
+                                except:
+                                    tweet_raw = ""
+
+                                is_reply = "Replying to @" in tweet_raw
                                     
                                 if is_reply:
-                                    print(f"Detected Medusa Reply. Looking for parent root tweet...")
-                                    # Look at the tweet ABOVE it in the same thread
-                                    if i > 0:
-                                        parent_tweet = tweets[i-1]
-                                        parent_handle_el = await parent_tweet.query_selector('[data-testid="User-Name"]')
+                                    print(f"-> Detected Medusa Reply. Searching for parent tweet...")
+                                    # ROBUST SEARCH: Look backwards from current index for the first NON-MEDUSA tweet
+                                    parent_tweet = None
+                                    for j in range(i - 1, -1, -1):
+                                        potential_parent = tweets[j]
+                                        p_handle_el = await potential_parent.query_selector('[data-testid="User-Name"]')
+                                        if p_handle_el:
+                                            p_handle_text = await p_handle_el.inner_text()
+                                            if f"@{target_username}" not in p_handle_text:
+                                                parent_tweet = potential_parent
+                                                break
+                                    
+                                    if parent_tweet:
+                                        p_handle_text = await (await parent_tweet.query_selector('[data-testid="User-Name"]')).inner_text()
+                                        print(f"-> Found potential parent by: {p_handle_text[:30]}")
                                         
-                                        if parent_handle_el:
-                                            parent_handle_text = await parent_handle_el.inner_text()
-                                            print(f"Checking parent author: {parent_handle_text[:30]}...")
+                                        # Check if parent is a reply itself
+                                        try:
+                                            p_raw = await parent_tweet.inner_text(timeout=5000)
+                                        except:
+                                            p_raw = ""
+                                        is_parent_reply = "Replying to @" in p_raw
                                             
-                                            # Check if parent is a reply itself (a comment)
-                                            parent_raw_text = await parent_tweet.inner_text()
-                                            is_parent_reply = "Replying to @" in parent_raw_text
+                                        # CRITERIA:
+                                        # 1. Parent is NOT Medusa
+                                        # 2. Parent is NOT a reply/comment (it is a ROOT tweet)
+                                        if "@MedusaOnchain" not in p_handle_text and not is_parent_reply:
+                                            print(f"SUCCESS: Root target found from @{p_handle_text.split()[-1]}")
+                                            parent_author = p_handle_text.split("@")[1].split()[0]
+                                            parent_display = p_handle_text.split("@")[0].strip()
                                             
-                                            # CRITERIA:
-                                            # 1. Parent is NOT Medusa
-                                            # 2. Parent is NOT a reply/comment (it is a ROOT tweet)
-                                            if "@MedusaOnchain" not in parent_handle_text and not is_parent_reply:
-                                                print(f"SUCCESS: Root target found from @{parent_handle_text.split()[-1]}")
-                                                parent_author = parent_handle_text.split("@")[1].split()[0]
-                                                parent_display = parent_handle_text.split("@")[0].strip()
+                                            content_el = await parent_tweet.query_selector('[data-testid="tweetText"]')
+                                            if content_el:
+                                                content = await content_el.inner_text()
                                                 
-                                                content_el = await parent_tweet.query_selector('[data-testid="tweetText"]')
-                                                if content_el:
-                                                    content = await content_el.inner_text()
-                                                    
-                                                    # Extract Tweet URL/ID for targeting and persistence
-                                                    # We look for the link containing '/status/'
-                                                    link_el = await parent_tweet.query_selector('a[href*="/status/"]')
-                                                    tweet_url = ""
-                                                    if link_el:
-                                                        tweet_url = await page.evaluate('(el) => el.href', link_el)
-                                                    
-                                                    # Extract Image URL if present
-                                                    image_el = await parent_tweet.query_selector('[data-testid="tweetPhoto"] img')
-                                                    image_url = ""
-                                                    if image_el:
-                                                        image_url = await page.evaluate('(el) => el.src', image_el)
+                                                # Extract Tweet URL/ID for targeting and persistence
+                                                # We look for the link containing '/status/'
+                                                link_el = await parent_tweet.query_selector('a[href*="/status/"]')
+                                                tweet_url = ""
+                                                if link_el:
+                                                    tweet_url = await page.evaluate('(el) => el.href', link_el)
+                                                
+                                                # Extract Image URL if present
+                                                image_el = await parent_tweet.query_selector('[data-testid="tweetPhoto"] img')
+                                                image_url = ""
+                                                if image_el:
+                                                    image_url = await page.evaluate('(el) => el.src', image_el)
 
-                                                    # Extract Medusa's actual reply text to "alter" it
-                                                    medusa_reply_el = await tweet.query_selector('[data-testid="tweetText"]')
-                                                    medusa_reply = ""
-                                                    if medusa_reply_el:
-                                                        medusa_reply = await medusa_reply_el.inner_text()
-                                                    
-                                                    target_data = {
-                                                        "author": parent_author,
-                                                        "display_name": parent_display,
-                                                        "content": content,
-                                                        "url": tweet_url,
-                                                        "image_url": image_url,
-                                                        "medusa_reply": medusa_reply
-                                                    }
-                                                    
-                                                    if target_data["url"] not in [t["url"] for t in targets]:
-                                                        targets.append(target_data)
-                                                        print(f"MIRROR SUCCESS: Captured @{parent_author} (Medusa said: '{medusa_reply}')")
-                                                        if len(targets) >= limit: break
-                                                else:
-                                                    print(f"MIRROR SKIP: @{parent_author}'s post is a sub-comment/thread.")
+                                                # Extract Medusa's actual reply text to "alter" it
+                                                medusa_reply_el = await tweet.query_selector('[data-testid="tweetText"]')
+                                                medusa_reply = ""
+                                                if medusa_reply_el:
+                                                    medusa_reply = await medusa_reply_el.inner_text()
+                                                
+                                                target_data = {
+                                                    "author": parent_author,
+                                                    "display_name": parent_display,
+                                                    "content": content,
+                                                    "url": tweet_url,
+                                                    "image_url": image_url,
+                                                    "medusa_reply": medusa_reply
+                                                }
+                                                
+                                                if target_data["url"] not in [t["url"] for t in targets]:
+                                                    targets.append(target_data)
+                                                    print(f"MIRROR SUCCESS: Captured @{parent_author} (Medusa said: '{medusa_reply}')")
+                                                    if len(targets) >= limit: break
+                                            else:
+                                                print(f"MIRROR SKIP: @{parent_author}'s post is a sub-comment/thread.")
                     except Exception:
                         continue
                     found_count += 1
