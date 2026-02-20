@@ -19,7 +19,7 @@ class XScraper:
         context = await playwright.chromium.launch_persistent_context(
             user_data_dir=profile_path,
             headless=headless,
-            channel="chrome", # Use Chrome channel for higher trust
+            # Removed channel="chrome" to allow default chromium in Docker/Koyeb
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             args=["--disable-blink-features=AutomationControlled"]
         )
@@ -136,9 +136,11 @@ class XScraper:
             
     async def fetch_mirrored_targets(self, target_username: str, limit: int = 5):
         """Find the root tweets that the target influencer has recently replied to."""
+        # Force headless=True for production environments where no display is available
+        is_headless = os.getenv("HEADLESS", "true").lower() == "true"
         targets = []
         async with async_playwright() as p:
-            context = await self.get_context(p, headless=False)
+            context = await self.get_context(p, headless=is_headless)
             if Config.X_AUTH_TOKEN:
                 await context.add_cookies([{
                     "name": "auth_token",
@@ -253,8 +255,10 @@ class XScraper:
 
     async def post_reply(self, tweet_url: str, reply_content: str):
         """Automate the actual posting of a reply using Playwright."""
+        # Force headless=True for production
+        is_headless = os.getenv("HEADLESS", "true").lower() == "true"
         async with async_playwright() as p:
-            context = await self.get_context(p, headless=False) # Headful to see it happen
+            context = await self.get_context(p, headless=is_headless)
             if Config.X_AUTH_TOKEN:
                 await context.add_cookies([{
                     "name": "auth_token",
