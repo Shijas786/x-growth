@@ -183,6 +183,16 @@ class XScraper:
                 await context.close()
                 return targets
             
+            # Click "Show" or "View" if X is hiding content (common on some profiles)
+            try:
+                show_btn = await page.query_selector('div[role="button"]:has-text("Show")')
+                if show_btn:
+                    await show_btn.click()
+                    print("Clicked 'Show' button to reveal hidden content.")
+                    await Humanizer.wait(2, 4)
+            except:
+                pass
+
             if not has_home_clue and not tweets_on_start: # Fallback if home link is buried
                 # Check for other logged in markers like the tweet button
                 if await page.query_selector('[data-testid="SideNav_NewTweet_Button"]'):
@@ -223,14 +233,20 @@ class XScraper:
                             
                             # If this is Medusa's tweet
                             if f"@{target_username}" in handle_text:
-                                # We check if it's a reply by looking for "Replying to" labels
-                                # Using a broader inner_text check with timeout protection
-                                try:
-                                    tweet_raw = await tweet.inner_text(timeout=5000)
-                                except:
-                                    tweet_raw = ""
-
-                                is_reply = "Replying to @" in tweet_raw
+                                # Check for the "Replying to" indicator
+                                # Method 1: Check for the specific context div
+                                reply_indicator = await tweet.query_selector('[data-testid="tweetText"] + div, div:has-text("Replying to")')
+                                is_reply = False
+                                
+                                if reply_indicator:
+                                    is_reply = True
+                                else:
+                                    # Method 2: Fallback to broader text check
+                                    try:
+                                        tweet_raw = await tweet.inner_text(timeout=3000)
+                                        is_reply = "Replying to @" in tweet_raw or "Replying to" in tweet_raw
+                                    except:
+                                        is_reply = False
                                     
                                 if is_reply:
                                     print(f"-> Detected Medusa Reply. Searching for parent tweet...")
