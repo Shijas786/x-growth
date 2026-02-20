@@ -86,64 +86,66 @@ async def auto_reply_loop():
     print("Starting Target-Mirroring Automation Loop...")
     
     while True:
+        print(f"\n[{datetime.now().strftime('%H:%M:%S')}] --- New Sweep Started ---")
         # 1. Mirror Medusa's lead (follow who she is replying to)
-        # We increase the limit to 15 to catch up on everything she did while we were away
-        targets = await scraper.fetch_mirrored_targets("MedusaOnchain", limit=15)
-        
-        if not targets:
-            print("No mirrored targets found. Sleeping...")
-            await asyncio.sleep(600)
-            continue
-        
-        for target in targets:
-            tweet_url = target.get("url")
-            if not tweet_url or tweet_url in processed_ids:
+        print(f"Mirroring: Checking @MedusaOnchain's recent engagement...")
+        try:
+            targets = await scraper.fetch_mirrored_targets("MedusaOnchain", limit=15)
+            
+            if not targets:
+                print("No new mirrored targets found in the last 50 tweets. Sleeping for 10m...")
+                await asyncio.sleep(600)
                 continue
+            
+            print(f"Found {len(targets)} potential targets. Filtering against Supabase...")
+            
+            for target in targets:
+                tweet_url = target.get("url")
+                if not tweet_url or tweet_url in processed_ids:
+                    continue
 
-            # Pick a persona (King or Medusa)
-            persona = random.choice(personas)
-            
-            print(f"\n--- Engaging with @{target['author']} ---")
-            print(f"Post: {target['content'][:100]}...")
-            
-            # 2. Generate reply by "altering" Medusa's original response
-            reply = await ai.generate_reply(
-                persona['portrait'], 
-                target.get('medusa_reply'), # Pass her reply to be altered
-                recipient_name=target['display_name'].split()[0],
-                image_url=target.get("image_url")
-            )
-            
-            # 3. Execute Reply
-            success = await scraper.post_reply(tweet_url, reply)
-            if success:
-                save_processed_id(tweet_url)
-                processed_ids.add(tweet_url)
-            
-            # Humanized delay between interactions in the same run
-            delay = random.uniform(30, 90)
-            print(f"Waiting {delay:.1f}s for stealth...")
-            await asyncio.sleep(delay)
+                # Pick a persona (King or Medusa)
+                persona = random.choice(personas)
+                
+                print(f"\n>>> Engaging with @{target['author']} <<<")
+                print(f"Post: {target['content'][:100]}...")
+                
+                # 2. Generate reply by "altering" Medusa's original response
+                reply = await ai.generate_reply(
+                    persona['portrait'], 
+                    target.get('medusa_reply'), # Pass her reply to be altered
+                    recipient_name=target['display_name'].split()[0],
+                    image_url=target.get("image_url")
+                )
+                
+                # 3. Execute Reply
+                success = await scraper.post_reply(tweet_url, reply)
+                if success:
+                    save_processed_id(tweet_url)
+                    processed_ids.add(tweet_url)
+                
+                # Humanized delay between interactions in the same run
+                delay = random.uniform(30, 90)
+                print(f"Stealth delay: {delay:.1f}s...")
+                await asyncio.sleep(delay)
+
+        except Exception as e:
+            print(f"SWEEP ERROR: {e}")
+            await asyncio.sleep(300)
 
         # LONG DELAY: Human Phone Pacing
-        # We don't check every 10 mins like a robot. 
-        # We simulate "checking your phone" at irregular intervals.
-        
         dice = random.random()
         if dice < 0.70:
-            # 70% chance: Standard check (10-25 mins)
             sweep_delay = random.uniform(600, 1500)
             tag = "STANDARD_CHECK"
         elif dice < 0.90:
-            # 20% chance: Life happens (1-3 hours break)
             sweep_delay = random.uniform(3600, 10800)
             tag = "LIFE_BREAK"
         else:
-            # 10% chance: Doomscrolling/Hooked (2-5 mins)
             sweep_delay = random.uniform(120, 300)
             tag = "BURST_CHECK"
             
-        print(f"[{tag}] Check complete. Next 'phone check' in {sweep_delay/60:.1f} minutes...")
+        print(f"[{tag}] Next 'phone check' in {sweep_delay/60:.1f} minutes...")
         await asyncio.sleep(sweep_delay)
 
 if __name__ == "__main__":
