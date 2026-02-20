@@ -5,6 +5,7 @@ from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from config import Config
 from humanizer import Humanizer
+from ai_logic import AIEngine
 
 class XScraper:
     def __init__(self):
@@ -139,6 +140,7 @@ class XScraper:
         # Force headless=True for production environments where no display is available
         is_headless = os.getenv("HEADLESS", "true").lower() == "true"
         targets = []
+        ai = AIEngine()
         async with async_playwright() as p:
             context = await self.get_context(p, headless=is_headless)
             if Config.X_AUTH_TOKEN:
@@ -233,7 +235,7 @@ class XScraper:
             found_count = 0
             empty_retries = 0
             max_empty_retries = 10 # Allow up to 10 reties for empty content
-            scan_limit = 100
+            scan_limit = 150
             
             while len(targets) < limit and found_count < scan_limit: 
                 # Use broader selector (article or data-testid)
@@ -323,11 +325,14 @@ class XScraper:
                                         is_parent_reply = "Replying to @" in p_raw
                                         
                                         if is_parent_reply:
-                                            print(f"[{i}] -> SKIP: Parent is a comment (not a root tweet)")
+                                            print(f"[{i}] -> Parent is a comment. Asking AI to evaluate quality...")
 
-                                        # CRITERIA:
-                                        if "@MedusaOnchain" not in p_handle_text and not is_parent_reply:
-                                            print(f"[{i}] -> SUCCESS: Root target found! Author: @{p_handle_text.split()[-1]}")
+                                        # AI EVALUATION: Let the AI decide if this is a good target
+                                        evaluation = await ai.evaluate_target(content or "[No text]", medusa_reply or "[No text]", parent_author)
+                                        print(f"[{i}] -> AI Decision: {evaluation['decision']} (Score: {evaluation['score']}, Reason: {evaluation['reason']})")
+
+                                        if evaluation['decision'] == "ACCEPT":
+                                            print(f"[{i}] -> SUCCESS: AI Accepted Target! Author: @{parent_author}")
                                             parent_author = p_handle_text.split("@")[1].split()[0]
                                             parent_display = p_handle_text.split("@")[0].strip()
                                             
@@ -368,7 +373,9 @@ class XScraper:
                                                     print(f"MIRROR SUCCESS: Captured @{parent_author} (Medusa said: '{medusa_reply}')")
                                                     if len(targets) >= limit: break
                                             else:
-                                                print(f"MIRROR SKIP: @{parent_author}'s post is a sub-comment/thread.")
+                                                print(f"MIRROR SKIP: @{parent_author}'s post has no text content.")
+                                        else:
+                                            print(f"[{i}] -> REJECTED: {evaluation['reason']}")
                                 else:
                                     print(f"[{i}] -> SKIP: Not detected as a reply (maybe a root post or quote).")
                     except Exception:
