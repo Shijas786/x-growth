@@ -317,8 +317,20 @@ class XScraper:
                                             break
                                     
                                     if parent_tweet:
+                                        # Check if parent is a reply itself (sub-thread detection)
+                                        try:
+                                            p_raw = await parent_tweet.inner_text(timeout=2000)
+                                        except:
+                                            p_raw = ""
+                                        
+                                        is_sub_thread = "Replying to @" in p_raw
                                         p_handle_text = await (await parent_tweet.query_selector('[data-testid="User-Name"]')).inner_text()
-                                        print(f"[{i}] -> Capturing target by: {p_handle_text[:30]}")
+
+                                        if is_sub_thread:
+                                            print(f"[{i}] -> SKIP: Parent is a comment/sub-thread. (Owner: {p_handle_text[:15]})")
+                                            continue
+
+                                        print(f"[{i}] -> Root Target Detected: {p_handle_text[:30]}")
                                         
                                         parent_author = p_handle_text.split("@")[1].split()[0]
                                         parent_display = p_handle_text.split("@")[0].strip()
