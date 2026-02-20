@@ -15,6 +15,9 @@ RUN playwright install chromium --with-deps
 # Copy project files
 COPY . .
 
+# Ensure logs appear in real-time
+ENV PYTHONUNBUFFERED=1
+
 # Ensure data directory exists
 RUN mkdir -p data
 

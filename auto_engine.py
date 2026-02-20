@@ -101,7 +101,11 @@ async def auto_reply_loop():
             
             for target in targets:
                 tweet_url = target.get("url")
-                if not tweet_url or tweet_url in processed_ids:
+                if not tweet_url:
+                    continue
+                    
+                if tweet_url in processed_ids:
+                    print(f"Skipping: already engaged with {tweet_url}")
                     continue
 
                 # Pick a persona (King or Medusa)

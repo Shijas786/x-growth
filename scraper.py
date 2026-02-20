@@ -184,7 +184,7 @@ class XScraper:
                                     is_reply = True
                                     
                                 if is_reply:
-                                    print(f"Detected Medusa Reply. Checking target...")
+                                    print(f"Detected Medusa Reply. Looking for parent root tweet...")
                                     # Look at the tweet ABOVE it in the same thread
                                     if i > 0:
                                         parent_tweet = tweets[i-1]
@@ -192,6 +192,7 @@ class XScraper:
                                         
                                         if parent_handle_el:
                                             parent_handle_text = await parent_handle_el.inner_text()
+                                            print(f"Checking parent author: {parent_handle_text[:30]}...")
                                             
                                             # Check if parent is a reply itself (a comment)
                                             parent_raw_text = await parent_tweet.inner_text()
@@ -200,7 +201,8 @@ class XScraper:
                                             # CRITERIA:
                                             # 1. Parent is NOT Medusa
                                             # 2. Parent is NOT a reply/comment (it is a ROOT tweet)
-                                            if f"@{target_username}" not in parent_handle_text and not is_parent_reply:
+                                            if "@MedusaOnchain" not in parent_handle_text and not is_parent_reply:
+                                                print(f"SUCCESS: Root target found from @{parent_handle_text.split()[-1]}")
                                                 parent_author = parent_handle_text.split("@")[1].split()[0]
                                                 parent_display = parent_handle_text.split("@")[0].strip()
                                                 
