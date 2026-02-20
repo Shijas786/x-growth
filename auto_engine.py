@@ -2,27 +2,43 @@ import asyncio
 import random
 from scraper import XScraper
 from ai_logic import AIEngine
+from supabase import create_client, Client
 from config import Config
 from datetime import datetime
 import time
 import os
 
+# Supabase Initialization
+supabase: Client = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY) if Config.SUPABASE_URL else None
+
 def load_processed_ids():
+    """Load IDs from Supabase instead of local file."""
     processed_urls = set()
-    if os.path.exists("data/processed_ids.txt"):
-        with open("data/processed_ids.txt", "r") as f:
-            for line in f:
-                parts = line.strip().split(" | ", 1)
-                if len(parts) == 2:
-                    processed_urls.add(parts[1])
-                else:
-                    processed_urls.add(parts[0])
+    if not supabase:
+        print("WARNING: Supabase not configured. Using temporary local state.")
+        return processed_urls
+
+    try:
+        response = supabase.table("processed_ids").select("tweet_url").execute()
+        for row in response.data:
+            processed_urls.add(row["tweet_url"])
+    except Exception as e:
+        print(f"Error loading from Supabase: {e}")
     return processed_urls
 
 def save_processed_id(tweet_url):
-    today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open("data/processed_ids.txt", "a") as f:
-        f.write(f"{today} | {tweet_url}\n")
+    """Save ID to Supabase."""
+    if not supabase:
+        return
+    
+    try:
+        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        supabase.table("processed_ids").insert({
+            "tweet_url": tweet_url,
+            "created_at": today
+        }).execute()
+    except Exception as e:
+        print(f"Error saving to Supabase: {e}")
 
 async def auto_reply_loop():
     scraper = XScraper()

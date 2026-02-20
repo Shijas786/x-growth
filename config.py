@@ -11,6 +11,10 @@ class Config:
     X_EMAIL = os.getenv("X_EMAIL")
     BROWSER_PROFILE_PATH = os.getenv("BROWSER_PROFILE_PATH", "./profile")
     
+    # Supabase (for persistent state on free-tier hosting)
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    
     # Target Influencers
     TARGET_INFLUENCERS = [
         "defiunknownking",
