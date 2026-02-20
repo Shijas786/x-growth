@@ -208,14 +208,21 @@ class XScraper:
             # Click "Show" or "View" if X is hiding content (common on some profiles)
             print("Checking for hidden content buttons (Show/View)...")
             try:
-                # Using a safer, faster selector
-                show_btn = await page.query_selector('div[role="button"] span:has-text("Show")')
-                if show_btn:
-                    print("Found 'Show' button. Clicking...")
-                    await show_btn.click()
-                    await Humanizer.wait(2, 4)
+                # Use evaluate to find and click the button without blocking if it's not there or slow
+                button_found = await page.evaluate("""() => {
+                    const buttons = Array.from(document.querySelectorAll('div[role="button"]'));
+                    const target = buttons.find(b => b.innerText.includes('Show') || b.innerText.includes('View'));
+                    if (target) {
+                        target.click();
+                        return true;
+                    }
+                    return false;
+                }""")
+                if button_found:
+                    print("Found 'Show/View' button. Clicking...")
+                    await Humanizer.wait(3, 5)
                 else:
-                    print("No 'Show' button found.")
+                    print("No 'Show/View' button detected.")
             except Exception as e:
                 print(f"Show-button check skipped: {e}")
             
