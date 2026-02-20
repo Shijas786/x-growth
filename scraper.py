@@ -168,18 +168,14 @@ class XScraper:
                 await context.close()
                 return targets
 
-            # Check for common "Blocked" or "Login Required" states
-            try:
-                page_text = await page.inner_text("body", timeout=15000)
-            except:
-                page_text = ""
-                
-            has_login_clue = "Log in" in page_text or "Something went wrong" in page_text
+            # Check for common "Blocked" or "Login Required" states using faster selectors
+            has_login_clue = await page.query_selector('a[href="/login"], [data-testid="loginButton"]')
+            has_error_clue = "Something went wrong" in await page.title()
             has_home_clue = await page.query_selector('[data-testid="AppTabBar_Home_Link"]')
             
-            if not has_home_clue and has_login_clue:
+            if not has_home_clue and (has_login_clue or has_error_clue):
                 print("❌ BLOCK DETECTED: X is requesting login or showing an error page.")
-                print("Diagnostics: Session cookie might be expired or restricted.")
+                print(f"Diagnostics: Title='{await page.title()}', LoginLink={bool(has_login_clue)}")
                 await context.close()
                 return targets
             
