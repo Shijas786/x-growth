@@ -207,6 +207,31 @@ class XScraper:
             else:
                 print("✅ LOGGED IN: Home navigation detected.")
             
+            # NEW: Handle "Cookies" banner that blocks content visibility
+            print("Checking for Cookie Consent banner...")
+            try:
+                cookie_button_clicked = await page.evaluate("""() => {
+                    const buttons = Array.from(document.querySelectorAll('div[role="button"]'));
+                    // Look for common cookie consent buttons
+                    const target = buttons.find(b => 
+                        b.innerText.includes('Accept all') || 
+                        b.innerText.includes('Refuse non-essential') ||
+                        b.innerText.includes('Close')
+                    );
+                    if (target) {
+                        target.click();
+                        return true;
+                    }
+                    return false;
+                }""")
+                if cookie_button_clicked:
+                    print("✅ Cookie banner dismissed.")
+                    await Humanizer.wait(2, 4)
+                else:
+                    print("No cookie banner detected.")
+            except Exception as e:
+                print(f"Cookie check skipped: {e}")
+
             # Click "Show" or "View" if X is hiding content (common on some profiles)
             print("Checking for hidden content buttons (Show/View)...")
             try:
