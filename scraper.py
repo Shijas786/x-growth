@@ -167,11 +167,19 @@ class XScraper:
 
             # Check for common "Blocked" or "Login Required" states
             page_text = await page.inner_text("body")
-            if "Log in to X" in page_text or "Something went wrong" in page_text:
+            has_login_clue = "Log in" in page_text or "Something went wrong" in page_text
+            has_home_clue = await page.query_selector('[data-testid="AppTabBar_Home_Link"]')
+            
+            if not has_home_clue and has_login_clue:
                 print("❌ BLOCK DETECTED: X is requesting login or showing an error page.")
-                print("Please verify your X_AUTH_TOKEN in Koyeb secrets.")
+                print("Diagnostics: Session cookie might be expired or restricted.")
                 await context.close()
                 return targets
+            
+            if not has_home_clue:
+                print("⚠️ WARNING: Logged-in navigation bar not found. X might be loading or blocked.")
+            else:
+                print("✅ LOGGED IN: Home navigation detected.")
             
             # We look for conversations where Medusa is the second participant
             # This is complex in X's DOM, so we look for "Replying to @..." text
@@ -179,13 +187,14 @@ class XScraper:
             found_count = 0
             while len(targets) < limit and found_count < 50: 
                 tweets = await page.query_selector_all('[data-testid="tweet"]')
-                print(f"Found {len(tweets)} tweets on page. (Total scanned: {found_count})")
+                print(f"Sweep Details: Found {len(tweets)} tweets on page. (Scanned: {found_count})")
                 
                 if not tweets:
-                    print("No tweets found. Scrolling to load more...")
+                    print(f"No tweets found. Page Title: '{await page.title()}'")
+                    print("Scrolling to load or trigger hydration...")
                     await Humanizer.natural_scroll(page)
-                    await Humanizer.wait(2, 4)
-                    found_count += 5 # Artificial increment to prevent infinite loop
+                    await Humanizer.wait(3, 6)
+                    found_count += 5 
                     continue
 
                 for i, tweet in enumerate(tweets):
