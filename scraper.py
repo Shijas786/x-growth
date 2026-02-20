@@ -168,18 +168,30 @@ class XScraper:
                 await context.close()
                 return targets
 
-            # Check for common "Blocked" or "Login Required" states using faster selectors
-            has_login_clue = await page.query_selector('a[href="/login"], [data-testid="loginButton"]')
-            has_error_clue = "Something went wrong" in await page.title()
-            has_home_clue = await page.query_selector('[data-testid="AppTabBar_Home_Link"]')
+            print(f"Diagnostics: Starting session verification...")
+            try:
+                print("Checking for Login Link...")
+                has_login_clue = await page.query_selector('a[href="/login"], [data-testid="loginButton"]')
+                print(f"Login Link Check: {bool(has_login_clue)}")
+
+                print("Checking Page Title...")
+                title = await page.title()
+                has_error_clue = "Something went wrong" in title
+                print(f"Title Check: '{title}' (Error: {has_error_clue})")
+
+                print("Checking for Home Link...")
+                has_home_clue = await page.query_selector('[data-testid="AppTabBar_Home_Link"]')
+                print(f"Home Link Check: {bool(has_home_clue)}")
+            except Exception as e:
+                print(f"Session Check Exception: {e}")
+                has_login_clue = has_error_clue = has_home_clue = None
             
             if not has_home_clue and (has_login_clue or has_error_clue):
                 print("❌ BLOCK DETECTED: X is requesting login or showing an error page.")
-                print(f"Diagnostics: Title='{await page.title()}', LoginLink={bool(has_login_clue)}")
                 await context.close()
                 return targets
             
-            print(f"Diagnostics: Verifying session state...")
+            print(f"Diagnostics: Verifying tweet presence...")
             # Initial check for tweets on the page to determine if we're logged in or if content is loading
             initial_tweets = await page.query_selector_all('[data-testid="tweet"]')
             tweets_on_start = len(initial_tweets) > 0
