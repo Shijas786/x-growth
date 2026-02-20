@@ -206,14 +206,20 @@ class XScraper:
                 print("✅ LOGGED IN: Home navigation detected.")
             
             # Click "Show" or "View" if X is hiding content (common on some profiles)
+            print("Checking for hidden content buttons (Show/View)...")
             try:
-                show_btn = await page.query_selector('div[role="button"]:has-text("Show")')
+                # Using a safer, faster selector
+                show_btn = await page.query_selector('div[role="button"] span:has-text("Show")')
                 if show_btn:
+                    print("Found 'Show' button. Clicking...")
                     await show_btn.click()
-                    print("Clicked 'Show' button to reveal hidden content.")
                     await Humanizer.wait(2, 4)
-            except:
-                pass
+                else:
+                    print("No 'Show' button found.")
+            except Exception as e:
+                print(f"Show-button check skipped: {e}")
+            
+            print("--- Starting Sweep Loop ---")
             
             # We look for conversations where Medusa is the second participant
             # Coverage Optimization: Increased scan limit for slow cloud hydration
