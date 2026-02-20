@@ -83,73 +83,77 @@ async def auto_reply_loop():
         {"name": "defiunknownking", "portrait": king_persona}
     ]
 
-    print("Starting Target-Mirroring Automation Loop...")
-    
+    print("--- Starting HOME FEED Engagement Strategy ---")
+    print("Limit: Max 10 replies per hour. Targeting Persons/Influencers.")
+
+    hourly_replies = [] # Track (timestamp, url) for the last 60 minutes
+
     while True:
-        print(f"\n[{datetime.now().strftime('%H:%M:%S')}] --- New Sweep Started ---")
-        # 1. Mirror Medusa's lead (follow who she is replying to)
-        print(f"Mirroring: Checking @MedusaOnchain's recent engagement...")
+        # 1. Check Hourly Limit
+        now = time.time()
+        hourly_replies = [r for r in hourly_replies if (now - r[0]) < 3600]
+        
+        if len(hourly_replies) >= 10:
+            wait_time = 3600 - (now - hourly_replies[0][0])
+            print(f"Hourly limit (10) reached. Sleeping for {wait_time/60:.1f} minutes...")
+            await asyncio.sleep(wait_time)
+            continue
+
+        print(f"\n[{datetime.now().strftime('%H:%M:%S')}] --- New Feed Sweep Started ---")
         try:
-            targets = await scraper.fetch_mirrored_targets("MedusaOnchain", limit=15)
+            # 2. Fetch Feed Targets
+            feed_targets = await scraper.fetch_home_feed_targets(limit=20)
             
-            if not targets:
-                print("No new mirrored targets found in the last 50 tweets. Sleeping for 10m...")
-                await asyncio.sleep(600)
+            if not feed_targets:
+                print("No new feed targets found. Waiting 5m...")
+                await asyncio.sleep(300)
                 continue
             
-            print(f"Found {len(targets)} potential targets. Filtering against Supabase...")
-            
-            for target in targets:
+            for target in feed_targets:
+                # Extra check: ensure we haven't hit the limit mid-loop
+                if len(hourly_replies) >= 10: break
+
                 tweet_url = target.get("url")
-                if not tweet_url:
-                    continue
-                    
-                if tweet_url in processed_ids:
-                    print(f"Skipping: already engaged with {tweet_url}")
+                if not tweet_url or tweet_url in processed_ids:
                     continue
 
-                # Pick a persona (King or Medusa)
+                print(f"\nEvaluating: @{target['author']} | Content: {target['content'][:60]}...")
+                
+                # 3. AI Evaluation (Identity Check)
+                evaluation = await ai.evaluate_target(target['content'], target['author'])
+                is_person = evaluation.get("is_person", False)
+                
+                if not is_person or evaluation['decision'] == "REJECT":
+                    print(f"REJECTED: {evaluation['reason']}")
+                    continue
+
+                print(f"ACCEPTED: {evaluation['reason']} (Score: {evaluation['score']})")
+                
+                # 4. Generate & Post Reply
                 persona = random.choice(personas)
+                reply = await ai.generate_reply(persona['portrait'], target['content'], recipient_name=target['display_name'].split()[0])
                 
-                print(f"\n>>> Engaging with @{target['author']} <<<")
-                print(f"Post: {target['content'][:100]}...")
-                
-                # 2. Generate reply by "altering" Medusa's original response
-                reply = await ai.generate_reply(
-                    persona['portrait'], 
-                    target.get('medusa_reply'), # Pass her reply to be altered
-                    recipient_name=target['display_name'].split()[0],
-                    image_url=target.get("image_url")
-                )
-                
-                # 3. Execute Reply
+                print(f">>> Replying as {persona['name']} to @{target['author']} <<<")
                 success = await scraper.post_reply(tweet_url, reply)
+                
                 if success:
                     save_processed_id(tweet_url)
                     processed_ids.add(tweet_url)
+                    hourly_replies.append((time.time(), tweet_url))
+                    print(f"SUCCESS: Reply posted. ({len(hourly_replies)}/10 this hour)")
                 
-                # Humanized delay between interactions in the same run
-                delay = random.uniform(30, 90)
-                print(f"Stealth delay: {delay:.1f}s...")
+                # Randomized delay between 2-5 minutes to look human
+                delay = random.uniform(120, 300)
+                print(f"Stealth delay: {delay/60:.1f}m...")
                 await asyncio.sleep(delay)
 
         except Exception as e:
-            print(f"SWEEP ERROR: {e}")
+            print(f"FEED ERROR: {e}")
             await asyncio.sleep(300)
 
-        # LONG DELAY: Human Phone Pacing
-        dice = random.random()
-        if dice < 0.70:
-            sweep_delay = random.uniform(600, 1500)
-            tag = "STANDARD_CHECK"
-        elif dice < 0.90:
-            sweep_delay = random.uniform(3600, 10800)
-            tag = "LIFE_BREAK"
-        else:
-            sweep_delay = random.uniform(120, 300)
-            tag = "BURST_CHECK"
-            
-        print(f"[{tag}] Next 'phone check' in {sweep_delay/60:.1f} minutes...")
+        # Randomized sweep interval (Checking every 10-20 mins)
+        sweep_delay = random.uniform(600, 1200)
+        print(f"Next 'phone check' in {sweep_delay/60:.1f} minutes...")
         await asyncio.sleep(sweep_delay)
 
 if __name__ == "__main__":

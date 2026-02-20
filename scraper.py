@@ -135,6 +135,104 @@ class XScraper:
                     print("X blocked the session. Please check the browser window.")
                     break
             
+    async def fetch_home_feed_targets(self, limit: int = 20):
+        """Scans the Home feed for trending or newly posted tweets."""
+        is_headless = os.getenv("HEADLESS", "true").lower() == "true"
+        targets = []
+        async with async_playwright() as p:
+            context = await self.get_context(p, headless=is_headless)
+            if Config.X_AUTH_TOKEN:
+                await context.add_cookies([{
+                    "name": "auth_token",
+                    "value": Config.X_AUTH_TOKEN,
+                    "domain": ".x.com",
+                    "path": "/",
+                    "secure": True,
+                    "httpOnly": True,
+                    "sameSite": "None"
+                }])
+            
+            page = await context.new_page()
+            await self.apply_stealth(page)
+            
+            url = "https://x.com/home"
+            print(f"Feed: Checking latest tweets at {url}...")
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                await Humanizer.wait(8, 12) 
+            except Exception as e:
+                print(f"Navigation Error: {e}")
+                await context.close()
+                return targets
+
+            # Handle Cookie banner
+            await self._dismiss_cookie_banner(page)
+
+            # Session Verification
+            has_home_clue = await page.query_selector('[data-testid="AppTabBar_Home_Link"]')
+            if not has_home_clue:
+                print("❌ BLOCK DETECTED: Not on Home feed.")
+                await context.close()
+                return targets
+
+            print("--- Starting Feed Scan ---")
+            found_count = 0
+            while len(targets) < limit and found_count < 50: # Scan up to 50 items to find 'limit' good ones
+                tweets = await page.query_selector_all('[data-testid="tweet"], article')
+                
+                for tweet in tweets:
+                    try:
+                        handle_el = await tweet.query_selector('[data-testid="User-Name"]')
+                        if not handle_el: continue
+                        
+                        handle_text = await handle_el.inner_text()
+                        author = handle_text.split("@")[-1].split()[0]
+                        display_name = handle_text.split("@")[0].strip()
+
+                        content_el = await tweet.query_selector('[data-testid="tweetText"]')
+                        content = await content_el.inner_text() if content_el else ""
+
+                        link_el = await tweet.query_selector('a[href*="/status/"]')
+                        tweet_url = await page.evaluate('(el) => el.href', link_el) if link_el else ""
+
+                        if tweet_url and tweet_url not in [t["url"] for t in targets]:
+                            targets.append({
+                                "author": author,
+                                "display_name": display_name,
+                                "content": content,
+                                "url": tweet_url
+                            })
+                            if len(targets) >= limit: break
+                    except:
+                        continue
+                
+                if len(targets) >= limit: break
+                await page.evaluate("window.scrollBy(0, 1500)")
+                await Humanizer.wait(3, 5)
+                found_count += 10
+
+            await context.close()
+        return targets
+
+    async def _dismiss_cookie_banner(self, page):
+        """Helper to clear the cookie overlay."""
+        try:
+            cookie_button_clicked = await page.evaluate("""() => {
+                const buttons = Array.from(document.querySelectorAll('div[role="button"]'));
+                const target = buttons.find(b => 
+                    b.innerText.includes('Accept all') || 
+                    b.innerText.includes('Refuse non-essential') ||
+                    b.innerText.includes('Close')
+                );
+                if (target) { target.click(); return true; }
+                return false;
+            }""")
+            if cookie_button_clicked:
+                print("✅ Cookie banner dismissed.")
+                await Humanizer.wait(1, 2)
+        except:
+            pass
+
     async def fetch_mirrored_targets(self, target_username: str, limit: int = 5):
         """Find the root tweets that the target influencer has recently replied to."""
         # Force headless=True for production environments where no display is available

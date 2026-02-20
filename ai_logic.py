@@ -93,26 +93,25 @@ class AIEngine:
         )
         return response.choices[0].message.content.strip().replace('"', '')
 
-    async def evaluate_target(self, post_content: str, medusa_reply: str, author_handle: str):
-        """Use AI to decide if a target is high-quality for mirroring."""
+    async def evaluate_target(self, post_content: str, author_handle: str):
+        """Use AI to decide if a target is high-quality for engagement and is a person."""
         prompt = f"""
-        TASK: EVALUATE TARGET QUALITY
-        Evaluate if this is a high-quality 'mirroring' opportunity for growth.
+        TASK: EVALUATE TARGET QUALITY & IDENTITY
+        Evaluate if this is a high-quality engagement lead and if the author is a PERSON.
         
         CRITERIA:
-        1. RELEVANCE: Is the post content about Crypto, AI, Tech, or Growth? (High priority)
-        2. NOISE: Is it a bot-heavy spam thread or a low-value 'gm' post? (Reject noise)
-        3. ENGAGEMENT: Does the post look like it has room for professional insight?
+        1. IDENTITY: Is the author a human/person/influencer? (Reject brands, products, companies, or bots).
+        2. RELEVANCE: Is the post content about Crypto, AI, Tech, or Growth? (High priority)
+        3. NOISE: Is it a bot-heavy spam thread or a low-value 'gm' post? (Reject noise)
+        4. ENGAGEMENT: Does the post look like it has room for professional insight?
         
         POST CONTENT (from @{author_handle}):
         "{post_content}"
         
-        MEDUSA'S REPLY:
-        "{medusa_reply}"
-        
         RETURN JSON ONLY:
         {{
             "score": 0.0 to 1.0 (float),
+            "is_person": true/false,
             "decision": "ACCEPT" or "REJECT",
             "reason": "short reason"
         }}
@@ -122,7 +121,7 @@ class AIEngine:
             model="gpt-4o",
             response_format={"type": "json_object"},
             messages=[
-                {"role": "system", "content": "You are a social media strategist analyzing high-value engagement leads."},
+                {"role": "system", "content": "You are a social media strategist analyzing high-value engagement leads. You target humans, not brands."},
                 {"role": "user", "content": prompt}
             ]
         )
