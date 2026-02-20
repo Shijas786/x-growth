@@ -7,9 +7,32 @@ from config import Config
 from datetime import datetime
 import time
 import os
+import threading
+import http.server
+import socketserver
 
 # Supabase Initialization
 supabase: Client = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY) if Config.SUPABASE_URL else None
+
+def run_health_check_server():
+    """Starts a dummy server to satisfy Koyeb's TCP health checks."""
+    try:
+        # Koyeb usually looks for port 8000 or 8080
+        port = int(os.getenv("PORT", 8000))
+        Handler = http.server.SimpleHTTPRequestHandler
+        # Suppress logging to keep the console clean
+        class QuietHandler(Handler):
+            def log_message(self, format, *args):
+                return
+
+        with socketserver.TCPServer(("", port), QuietHandler) as httpd:
+            print(f"Health Check Server: Success! Listening on port {port}")
+            httpd.serve_forever()
+    except Exception as e:
+        print(f"Health Check Server Error: {e}")
+
+# Start the health check server in a background thread
+threading.Thread(target=run_health_check_server, daemon=True).start()
 
 def load_processed_ids():
     """Load IDs from Supabase instead of local file."""
