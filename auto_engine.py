@@ -63,6 +63,8 @@ def save_processed_id(tweet_url):
     except Exception as e:
         print(f"Error saving to Supabase: {e}")
 
+import gc
+
 async def auto_reply_loop():
     scraper = XScraper()
     ai = AIEngine()
@@ -101,12 +103,12 @@ async def auto_reply_loop():
 
         print(f"\n[{datetime.now().strftime('%H:%M:%S')}] --- New Feed Sweep Started ---")
         try:
-            # 2. Fetch Feed Targets
-            feed_targets = await scraper.fetch_home_feed_targets(limit=20)
+            # 2. Fetch Feed Targets (Reduced limit to save CPU)
+            feed_targets = await scraper.fetch_home_feed_targets(limit=10)
             
             if not feed_targets:
-                print("No new feed targets found. Waiting 5m...")
-                await asyncio.sleep(300)
+                print("No new feed targets found. Waiting 10m...")
+                await asyncio.sleep(600)
                 continue
             
             for target in feed_targets:
@@ -142,8 +144,11 @@ async def auto_reply_loop():
                     hourly_replies.append((time.time(), tweet_url))
                     print(f"SUCCESS: Reply posted. ({len(hourly_replies)}/10 this hour)")
                 
-                # Randomized delay between 2-5 minutes to look human
-                delay = random.uniform(120, 300)
+                # Force cleanup after browser interaction
+                gc.collect()
+
+                # Randomized delay between 3-7 minutes (Increased to cool CPU)
+                delay = random.uniform(180, 420)
                 print(f"Stealth delay: {delay/60:.1f}m...")
                 await asyncio.sleep(delay)
 
@@ -151,8 +156,11 @@ async def auto_reply_loop():
             print(f"FEED ERROR: {e}")
             await asyncio.sleep(300)
 
-        # Randomized sweep interval (Checking every 10-20 mins)
-        sweep_delay = random.uniform(600, 1200)
+        # Force final cleanup for the loop
+        gc.collect()
+
+        # Randomized sweep interval (Checking every 15-25 mins - Increased for safety)
+        sweep_delay = random.uniform(900, 1500)
         print(f"Next 'phone check' in {sweep_delay/60:.1f} minutes...")
         await asyncio.sleep(sweep_delay)
 

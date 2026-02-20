@@ -22,7 +22,15 @@ class XScraper:
             headless=headless,
             # Removed channel="chrome" to allow default chromium in Docker/Koyeb
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            args=["--disable-blink-features=AutomationControlled"]
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-gpu",
+                "--disable-setuid-sandbox",
+                "--no-first-run",
+                "--no-zygote"
+            ]
         )
         return context
 
