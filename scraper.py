@@ -157,8 +157,21 @@ class XScraper:
             
             url = f"https://x.com/{target_username}/with_replies"
             print(f"Mirroring: Checking @{target_username}'s recent engagement at {url}...")
-            await page.goto(url)
-            await Humanizer.wait(3, 5)
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                await Humanizer.wait(5, 8) # Longer wait for cloud
+            except Exception as e:
+                print(f"Navigation Error: {e}")
+                await context.close()
+                return targets
+
+            # Check for common "Blocked" or "Login Required" states
+            page_text = await page.inner_text("body")
+            if "Log in to X" in page_text or "Something went wrong" in page_text:
+                print("❌ BLOCK DETECTED: X is requesting login or showing an error page.")
+                print("Please verify your X_AUTH_TOKEN in Koyeb secrets.")
+                await context.close()
+                return targets
             
             # We look for conversations where Medusa is the second participant
             # This is complex in X's DOM, so we look for "Replying to @..." text
@@ -166,6 +179,15 @@ class XScraper:
             found_count = 0
             while len(targets) < limit and found_count < 50: 
                 tweets = await page.query_selector_all('[data-testid="tweet"]')
+                print(f"Found {len(tweets)} tweets on page. (Total scanned: {found_count})")
+                
+                if not tweets:
+                    print("No tweets found. Scrolling to load more...")
+                    await Humanizer.natural_scroll(page)
+                    await Humanizer.wait(2, 4)
+                    found_count += 5 # Artificial increment to prevent infinite loop
+                    continue
+
                 for i, tweet in enumerate(tweets):
                     try:
                         handle_el = await tweet.query_selector('[data-testid="User-Name"]')
