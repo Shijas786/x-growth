@@ -242,13 +242,28 @@ class XScraper:
                 
                 if not tweets:
                     empty_retries += 1
+                    
+                    # Diagnostic: What IS on the page?
+                    try:
+                        # Check for the "Retry" button X shows when it fails mentally
+                        retry_btn = await page.query_selector('div[role="button"] span:has-text("Retry")')
+                        if retry_btn:
+                            print("⚠️ RETRY BUTTON DETECTED. X failed to load the feed. Clicking retry...")
+                            await retry_btn.click()
+                        
+                        # Grab a snippet of the main content area text for debugging
+                        center_text = await page.evaluate("() => document.body.innerText.substring(0, 500)")
+                        print(f"Diagnostics: Page Content Snippet: {center_text.replace('\\n', ' ')[:200]}...")
+                    except:
+                        pass
+
                     if empty_retries > max_empty_retries:
                         print(f"Giving up after {max_empty_retries} empty scrolls. Page status: '{await page.title()}'")
                         break
                         
-                    print(f"Try {empty_retries}/{max_empty_retries}: Loading content... (Title: '{await page.title()}')")
-                    # Force a slightly deeper scroll to trigger hydration
-                    await page.evaluate("window.scrollBy(0, 1000)")
+                    print(f"Try {empty_retries}/{max_empty_retries}: Scrolling for hydration... (Title: '{await page.title()}')")
+                    # Use a more aggressive scroll
+                    await page.evaluate("window.scrollBy(0, 1500)")
                     await Humanizer.wait(5, 8)
                     continue
                 
