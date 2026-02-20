@@ -1,0 +1,12 @@
+.env
+__pycache__/
+logs/
+profile/
+data/processed_ids.txt
+data/*.webp
+data/*.png
+.DS_Store
+node_modules/
+dist/
+build/
+*.pyc
