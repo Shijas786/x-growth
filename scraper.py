@@ -255,7 +255,8 @@ class XScraper:
                         
                         # Grab a snippet of the main content area text for debugging
                         center_text = await page.evaluate("() => document.body.innerText.substring(0, 500)")
-                        print(f"Diagnostics: Page Content Snippet: {center_text.replace('\\n', ' ')[:200]}...")
+                        clean_snippet = center_text.replace('\n', ' ')[:200]
+                        print(f"Diagnostics: Page Content Snippet: {clean_snippet}...")
                     except:
                         pass
 
