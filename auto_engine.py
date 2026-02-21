@@ -1,6 +1,7 @@
 import asyncio
 import random
 from scraper import XScraper
+from playwright.async_api import async_playwright
 from ai_logic import AIEngine
 from supabase import create_client, Client
 from config import Config
