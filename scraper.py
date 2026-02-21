@@ -143,35 +143,32 @@ class XScraper:
                     print("X blocked the session. Please check the browser window.")
                     break
             
-    async def fetch_home_feed_targets(self, limit: int = 20):
+    async def fetch_home_feed_targets(self, limit: int = 20, page=None):
         """Scans the Home feed for trending or newly posted tweets."""
         is_headless = os.getenv("HEADLESS", "true").lower() == "true"
         targets = []
-        async with async_playwright() as p:
+        
+        # If no page provided, we create a temporary one (Legacy mode)
+        p = None
+        context = None
+        if not page:
+            p_manager = async_playwright()
+            p = await p_manager.__aenter__()
             context = await self.get_context(p, headless=is_headless)
             if Config.X_AUTH_TOKEN:
                 await context.add_cookies([{
-                    "name": "auth_token",
-                    "value": Config.X_AUTH_TOKEN,
-                    "domain": ".x.com",
-                    "path": "/",
-                    "secure": True,
-                    "httpOnly": True,
-                    "sameSite": "None"
+                    "name": "auth_token", "value": Config.X_AUTH_TOKEN,
+                    "domain": ".x.com", "path": "/", "secure": True,
+                    "httpOnly": True, "sameSite": "None"
                 }])
-            
             page = await context.new_page()
             await self.apply_stealth(page)
-            
+
+        try:
             url = "https://x.com/home"
             print(f"Feed: Checking latest tweets at {url}...")
-            try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                await Humanizer.wait(8, 12) 
-            except Exception as e:
-                print(f"Navigation Error: {e}")
-                await context.close()
-                return targets
+            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            await Humanizer.wait(8, 12) 
 
             # Handle Cookie banner
             await self._dismiss_cookie_banner(page)
@@ -180,46 +177,41 @@ class XScraper:
             has_home_clue = await page.query_selector('[data-testid="AppTabBar_Home_Link"]')
             if not has_home_clue:
                 print("❌ BLOCK DETECTED: Not on Home feed.")
-                await context.close()
+                if not page: # only if we created it
+                    await context.close()
+                    await p_manager.__aexit__(None, None, None)
                 return targets
 
             print("--- Starting Feed Scan ---")
             found_count = 0
-            while len(targets) < limit and found_count < 50: # Scan up to 50 items to find 'limit' good ones
+            while len(targets) < limit and found_count < 50:
                 tweets = await page.query_selector_all('[data-testid="tweet"], article')
-                
                 for tweet in tweets:
                     try:
                         handle_el = await tweet.query_selector('[data-testid="User-Name"]')
                         if not handle_el: continue
-                        
                         handle_text = await handle_el.inner_text()
                         author = handle_text.split("@")[-1].split()[0]
                         display_name = handle_text.split("@")[0].strip()
-
                         content_el = await tweet.query_selector('[data-testid="tweetText"]')
                         content = await content_el.inner_text() if content_el else ""
-
                         link_el = await tweet.query_selector('a[href*="/status/"]')
                         tweet_url = await page.evaluate('(el) => el.href', link_el) if link_el else ""
 
                         if tweet_url and tweet_url not in [t["url"] for t in targets]:
-                            targets.append({
-                                "author": author,
-                                "display_name": display_name,
-                                "content": content,
-                                "url": tweet_url
-                            })
+                            targets.append({"author": author, "display_name": display_name, "content": content, "url": tweet_url})
                             if len(targets) >= limit: break
-                    except:
-                        continue
-                
+                    except: continue
                 if len(targets) >= limit: break
                 await page.evaluate("window.scrollBy(0, 1500)")
                 await Humanizer.wait(3, 5)
                 found_count += 10
-
-            await context.close()
+        finally:
+            if not p: # We used an external page, don't close
+                pass
+            else:
+                await context.close()
+                await p_manager.__aexit__(None, None, None)
         return targets
 
     async def _dismiss_cookie_banner(self, page):
@@ -515,26 +507,28 @@ class XScraper:
             await context.close()
         return targets
 
-    async def post_reply(self, tweet_url: str, reply_content: str):
+    async def post_reply(self, tweet_url: str, reply_content: str, page=None):
         """Automate the actual posting of a reply using Playwright."""
-        # Force headless=True for production
         is_headless = os.getenv("HEADLESS", "true").lower() == "true"
-        async with async_playwright() as p:
+        
+        # If no page provided, we create a temporary one (Legacy mode)
+        p = None
+        context = None
+        if not page:
+            p_manager = async_playwright()
+            p = await p_manager.__aenter__()
             context = await self.get_context(p, headless=is_headless)
             if Config.X_AUTH_TOKEN:
                 await context.add_cookies([{
-                    "name": "auth_token",
-                    "value": Config.X_AUTH_TOKEN,
-                    "domain": ".x.com",
-                    "path": "/",
-                    "secure": True,
-                    "httpOnly": True,
-                    "sameSite": "None"
+                    "name": "auth_token", "value": Config.X_AUTH_TOKEN,
+                    "domain": ".x.com", "path": "/", "secure": True,
+                    "httpOnly": True, "sameSite": "None"
                 }])
-            
             page = await context.new_page()
             await self.apply_stealth(page)
-            
+
+        success = False
+        try:
             print(f"Navigating to tweet: {tweet_url}")
             await page.goto(tweet_url)
             await Humanizer.wait(3, 5)
@@ -543,7 +537,6 @@ class XScraper:
             print("Clicking reply box...")
             reply_box = await page.query_selector('[data-testid="tweetTextarea_0"]')
             if not reply_box:
-                # Some tweets might require clicking the "Reply" indicator first
                 indicator = await page.query_selector('[data-testid="reply"]')
                 if indicator:
                     await indicator.click()
@@ -551,23 +544,25 @@ class XScraper:
                     reply_box = await page.query_selector('[data-testid="tweetTextarea_0"]')
             
             if reply_box:
-                # 2. Type content human-like
                 print(f"Typing reply: {reply_content[:50]}...")
                 for char in reply_content:
                     await reply_box.type(char, delay=random.randint(50, 150))
-                
                 await Humanizer.wait(1, 2)
                 
-                # 3. Click Post
                 post_btn = await page.query_selector('[data-testid="tweetButtonInline"]')
                 if post_btn:
                     print("Sending tweet...")
-                    await post_btn.click() # LIVE: Now enabled
+                    await post_btn.click()
                     await Humanizer.wait(2, 4)
-                else:
-                    print("Could not find Post button.")
+                    success = True
             else:
-                print("Could not find reply box.")
-                
-            await context.close()
-        return True
+                print("❌ ERROR: Could not find reply box.")
+        except Exception as e:
+            print(f"Post-Reply Error: {e}")
+        finally:
+            if not p: # We used an external page, don't close
+                pass
+            else:
+                await context.close()
+                await p_manager.__aexit__(None, None, None)
+        return success

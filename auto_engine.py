@@ -10,6 +10,7 @@ import os
 import threading
 import http.server
 import socketserver
+import gc
 
 # Supabase Initialization
 supabase: Client = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY) if Config.SUPABASE_URL else None
@@ -63,14 +64,11 @@ def save_processed_id(tweet_url):
     except Exception as e:
         print(f"Error saving to Supabase: {e}")
 
-import gc
-
 async def auto_reply_loop():
     scraper = XScraper()
     ai = AIEngine()
     processed_ids = load_processed_ids()
     
-    # Load personas
     try:
         with open("data/MedusaOnchain_portrait.txt", "r") as f:
             medusa_persona = f.read()
@@ -85,10 +83,10 @@ async def auto_reply_loop():
         {"name": "defiunknownking", "portrait": king_persona}
     ]
 
-    print("--- Starting HOME FEED Engagement Strategy ---")
-    print("Limit: Max 10 replies per hour. Targeting Persons/Influencers.")
+    print("--- Starting SINGLE-SESSION Feed Engagement ---")
+    print("Limit: Max 10 replies per hour. 512MB RAM Optimization Active.")
 
-    hourly_replies = [] # Track (timestamp, url) for the last 60 minutes
+    hourly_replies = []
 
     while True:
         # 1. Check Hourly Limit
@@ -101,67 +99,70 @@ async def auto_reply_loop():
             await asyncio.sleep(wait_time)
             continue
 
-        print(f"\n[{datetime.now().strftime('%H:%M:%S')}] --- New Feed Sweep Started ---")
-        try:
-            # 2. Fetch Feed Targets (Reduced limit to save CPU)
-            feed_targets = await scraper.fetch_home_feed_targets(limit=10)
+        print(f"\n[{datetime.now().strftime('%H:%M:%S')}] --- New Single-Session Sweep Started ---")
+        
+        # 2. Launch Browser ONCE for the whole sweep
+        async with async_playwright() as p:
+            is_headless = os.getenv("HEADLESS", "true").lower() == "true"
+            context = await scraper.get_context(p, headless=is_headless)
             
-            if not feed_targets:
-                print("No new feed targets found. Waiting 10m...")
-                await asyncio.sleep(600)
-                continue
+            if Config.X_AUTH_TOKEN:
+                await context.add_cookies([{
+                    "name": "auth_token", "value": Config.X_AUTH_TOKEN,
+                    "domain": ".x.com", "path": "/", "secure": True,
+                    "httpOnly": True, "sameSite": "None"
+                }])
             
-            for target in feed_targets:
-                # Extra check: ensure we haven't hit the limit mid-loop
-                if len(hourly_replies) >= 10: break
+            page = await context.new_page()
+            await scraper.apply_stealth(page)
 
-                tweet_url = target.get("url")
-                if not tweet_url or tweet_url in processed_ids:
-                    continue
+            try:
+                # 3. Fetch Feed Targets using the SHARED page
+                feed_targets = await scraper.fetch_home_feed_targets(limit=10, page=page)
+                
+                if not feed_targets:
+                    print("No targets found in this session.")
+                else:
+                    for target in feed_targets:
+                        # Safety checks
+                        if len(hourly_replies) >= 10: break
+                        tweet_url = target.get("url")
+                        if not tweet_url or tweet_url in processed_ids: continue
 
-                print(f"\nEvaluating: @{target['author']} | Content: {target['content'][:60]}...")
-                
-                # 3. AI Evaluation (Identity Check)
-                evaluation = await ai.evaluate_target(target['content'], target['author'])
-                is_person = evaluation.get("is_person", False)
-                
-                if not is_person or evaluation['decision'] == "REJECT":
-                    print(f"REJECTED: {evaluation['reason']}")
-                    continue
+                        print(f"\nEvaluating: @{target['author']}...")
+                        evaluation = await ai.evaluate_target(target['content'], target['author'])
+                        
+                        if evaluation.get("is_person", False) and evaluation['decision'] == "ACCEPT":
+                            print(f"ACCEPTED: {evaluation['reason']}")
+                            
+                            persona = random.choice(personas)
+                            reply = await ai.generate_reply(persona['portrait'], target['content'], recipient_name=target['display_name'].split()[0])
+                            
+                            print(f">>> Replying as {persona['name']} to @{target['author']} <<<")
+                            # 4. Post Reply using the SAME shared page
+                            success = await scraper.post_reply(tweet_url, reply, page=page)
+                            
+                            if success:
+                                save_processed_id(tweet_url)
+                                processed_ids.add(tweet_url)
+                                hourly_replies.append((time.time(), tweet_url))
+                                print(f"SUCCESS: Reply posted. ({len(hourly_replies)}/10 this hour)")
+                            
+                            # Small delay between posts in the same session
+                            await Humanizer.wait(30, 60)
+                        else:
+                            print(f"REJECTED: {evaluation.get('reason', 'Not a person/low quality')}")
 
-                print(f"ACCEPTED: {evaluation['reason']} (Score: {evaluation['score']})")
-                
-                # 4. Generate & Post Reply
-                persona = random.choice(personas)
-                reply = await ai.generate_reply(persona['portrait'], target['content'], recipient_name=target['display_name'].split()[0])
-                
-                print(f">>> Replying as {persona['name']} to @{target['author']} <<<")
-                success = await scraper.post_reply(tweet_url, reply)
-                
-                if success:
-                    save_processed_id(tweet_url)
-                    processed_ids.add(tweet_url)
-                    hourly_replies.append((time.time(), tweet_url))
-                    print(f"SUCCESS: Reply posted. ({len(hourly_replies)}/10 this hour)")
-                
-                # Force cleanup after browser interaction
-                gc.collect()
+            except Exception as e:
+                print(f"SESSION ERROR: {e}")
+            finally:
+                print("Closing browser session to reclaim RAM...")
+                await context.close()
 
-                # Randomized delay between 3-7 minutes (Increased to cool CPU)
-                delay = random.uniform(180, 420)
-                print(f"Stealth delay: {delay/60:.1f}m...")
-                await asyncio.sleep(delay)
-
-        except Exception as e:
-            print(f"FEED ERROR: {e}")
-            await asyncio.sleep(300)
-
-        # Force final cleanup for the loop
+        # Final cleanup and long rest
         gc.collect()
-
-        # Randomized sweep interval (Checking every 15-25 mins - Increased for safety)
-        sweep_delay = random.uniform(900, 1500)
-        print(f"Next 'phone check' in {sweep_delay/60:.1f} minutes...")
+        sweep_delay = random.uniform(900, 1800)
+        print(f"Resting CPU/RAM. Next check in {sweep_delay/60:.1f} minutes...")
         await asyncio.sleep(sweep_delay)
 
 if __name__ == "__main__":
